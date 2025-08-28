@@ -1,0 +1,933 @@
+<!DOCTYPE html>
+<html lang="de-CH">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OTGM – Ober Thurgauer Meisterschaft</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui'] },
+          colors: { brand: { 50:'#eef9ff',100:'#d6f0ff',200:'#b0e0ff',300:'#7cc8ff',400:'#36a6ff',500:'#0087f5',600:'#006cd3',700:'#0057a8',800:'#004987',900:'#013f72'} }
+        }
+      }
+    }
+  </script>
+  <style>
+    html, body { height: 100%; }
+    .glass { backdrop-filter: blur(8px); background: rgba(255,255,255,0.7); }
+    .container-max { max-width: 1100px; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900">
+  <!-- Header / Nav -->
+  <header class="sticky top-0 z-40 bg-white/90 backdrop-blur border-b border-slate-200">
+    <div class="container mx-auto container-max px-4">
+      <div class="flex items-center py-3 gap-4">
+        <div class="flex items-center gap-3">
+          <div class="h-10 w-10 rounded-xl bg-brand-600 text-white grid place-items-center text-lg font-bold">OT</div>
+          <div>
+            <div class="text-lg font-bold leading-tight">OTGM – Ober Thurgauer Meisterschaft</div>
+            <div class="text-xs text-slate-500 -mt-0.5">Thurgauer Turnverband • Volleyball</div>
+          </div>
+        </div>
+        <nav class="ml-auto">
+          <ul class="flex gap-2 sm:gap-3 text-sm">
+            <li><a href="#/home" class="nav-link px-3 py-2 rounded-lg hover:bg-slate-100">Home</a></li>
+            <li><a href="#/spielplan" class="nav-link px-3 py-2 rounded-lg hover:bg-slate-100">Spielplaene</a></li>
+            <li><a href="#/ranglisten" class="nav-link px-3 py-2 rounded-lg hover:bg-slate-100">Ranglisten</a></li>
+            <li><a href="#/teams" class="nav-link px-3 py-2 rounded-lg hover:bg-slate-100">Teams</a></li>
+            <li><a href="#/archiv" class="nav-link px-3 py-2 rounded-lg hover:bg-slate-100">Archiv</a></li>
+            <li class="hidden sm:block"><span class="px-2 text-slate-300">|</span></li>
+            <li><a href="#/login" id="loginNav" class="px-3 py-2 rounded-lg bg-brand-600 text-white hover:bg-brand-700">Login</a></li>
+            <li class="hidden" id="loggedInNav">
+              <div class="relative group">
+                <button class="px-3 py-2 rounded-lg bg-brand-600 text-white hover:bg-brand-700" id="userMenuBtn">Intern</button>
+                <div class="absolute right-0 mt-2 w-56 rounded-xl shadow-lg bg-white ring-1 ring-slate-200 p-2 hidden group-hover:block">
+                  <a href="#/intern" class="block px-3 py-2 rounded-lg hover:bg-slate-100">Dashboard</a>
+                  <a href="#/intern#spiele" class="block px-3 py-2 rounded-lg hover:bg-slate-100">Meine Spiele</a>
+                  <a href="#/intern#adressen" class="block px-3 py-2 rounded-lg hover:bg-slate-100">Adressliste Kapitaene</a>
+                  <a href="#/intern#teamfoto" class="block px-3 py-2 rounded-lg hover:bg-slate-100">Teamfoto</a>
+                  <a href="#/logout" class="block px-3 py-2 rounded-lg hover:bg-slate-100">Logout</a>
+                </div>
+              </div>
+            </li>
+          </ul>
+        </nav>
+      </div>
+    </div>
+  </header>
+
+  <main id="app" class="container mx-auto container-max px-4 py-6"></main>
+
+  <!-- Footer -->
+  <footer class="border-t border-slate-200 mt-12">
+    <div class="container mx-auto container-max px-4 py-8 text-sm text-slate-600 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <div>© <span id="year"></span> OTGM • Thurgauer Turnverband</div>
+      <div class="flex gap-3">
+        <a href="#/admin" class="text-slate-400 hover:text-slate-600" id="adminLink">Admin</a>
+        <span class="text-slate-300">•</span>
+        <a href="#/datenschutz" class="text-slate-400 hover:text-slate-600">Datenschutz</a>
+        <span class="text-slate-300">•</span>
+        <a href="#/impressum" class="text-slate-400 hover:text-slate-600">Impressum</a>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    // --- Utility & Storage --------------------------------------------------
+    const LS_KEY = 'otgm.state.v1';
+    const nowISO = () => new Date().toISOString();
+
+    function clone(obj){ return JSON.parse(JSON.stringify(obj)); }
+
+    function loadState(){
+      const raw = localStorage.getItem(LS_KEY);
+      if(!raw){ const seeded = seed(); saveState(seeded); return seeded; }
+      try { return JSON.parse(raw); } catch(e){ console.warn('Resetting corrupt state', e); const seeded = seed(); saveState(seeded); return seeded; }
+    }
+    function saveState(state){ localStorage.setItem(LS_KEY, JSON.stringify(state)); refreshAuthUI(); }
+
+    // Simple (non-crypto) hash for demo purposes only
+    function hash(s){ let h=5381; for(let i=0;i<s.length;i++){ h=((h<<5)+h)+s.charCodeAt(i); } return String(h>>>0); }
+
+    // Download helper
+    function downloadJSON(filename, data){
+      const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url);
+    }
+
+    // Format helpers
+    const fmtDate = (iso) => new Date(iso).toLocaleDateString('de-CH');
+    const fmtTime = (iso) => new Date(iso).toLocaleTimeString('de-CH', {hour:'2-digit', minute:'2-digit'});
+
+    // --- Seed Data ----------------------------------------------------------
+    const GROUPS = ['A','B','C1','C2'];
+    function seed(){
+      const season = currentSeasonLabel();
+      const teams = [
+        {id:'tA1', name:'Volley Wil A', group:'A', captain:'Lara Frei', email:'lara.frei@example.ch', phone:'+41 79 111 22 33', photo:''},
+        {id:'tA2', name:'Bischofszell A', group:'A', captain:'Mira Keller', email:'mira.keller@example.ch', phone:'+41 79 222 33 44', photo:''},
+        {id:'tA3', name:'Amriswil A', group:'A', captain:'Livia Graf', email:'livia.graf@example.ch', phone:'+41 79 333 44 55', photo:''},
+        {id:'tA4', name:'Weinfelden A', group:'A', captain:'Nora Egli', email:'nora.egli@example.ch', phone:'+41 79 444 55 66', photo:''},
+        {id:'tB1', name:'Volley Wil B', group:'B', captain:'Jan Schmid', email:'jan.schmid@example.ch', phone:'+41 79 555 66 77', photo:''},
+        {id:'tB2', name:'Bischofszell B', group:'B', captain:'Sandro Loosli', email:'sandro.loosli@example.ch', phone:'+41 79 666 77 88', photo:''},
+        {id:'tB3', name:'Amriswil B', group:'B', captain:'Marco Koller', email:'marco.koller@example.ch', phone:'+41 79 777 88 99', photo:''},
+        {id:'tB4', name:'Weinfelden B', group:'B', captain:'Fabio Beer', email:'fabio.beer@example.ch', phone:'+41 79 888 99 00', photo:''},
+        {id:'tC11', name:'Volley Wil C1', group:'C1', captain:'Anna Roth', email:'anna.roth@example.ch', phone:'+41 79 101 20 30', photo:''},
+        {id:'tC12', name:'Bischofszell C1', group:'C1', captain:'Eva Marty', email:'eva.marty@example.ch', phone:'+41 79 202 30 40', photo:''},
+        {id:'tC13', name:'Amriswil C1', group:'C1', captain:'Mina Ackermann', email:'mina.ackermann@example.ch', phone:'+41 79 303 40 50', photo:''},
+        {id:'tC14', name:'Weinfelden C1', group:'C1', captain:'Sina Hug', email:'sina.hug@example.ch', phone:'+41 79 404 50 60', photo:''},
+        {id:'tC21', name:'Volley Wil C2', group:'C2', captain:'Nina Widmer', email:'nina.widmer@example.ch', phone:'+41 79 505 60 70', photo:''},
+        {id:'tC22', name:'Bischofszell C2', group:'C2', captain:'Zoë Gantenbein', email:'zoe.g@example.ch', phone:'+41 79 606 70 80', photo:''},
+        {id:'tC23', name:'Amriswil C2', group:'C2', captain:'Alina Zaugg', email:'alina.z@example.ch', phone:'+41 79 707 80 90', photo:''},
+        {id:'tC24', name:'Weinfelden C2', group:'C2', captain:'Nora Haller', email:'nora.haller@example.ch', phone:'+41 79 808 90 10', photo:''},
+      ];
+      const users = [
+        ...teams.map(t => ({ id: 'u_'+t.id, teamId: t.id, role:'team', username: t.name.toLowerCase().replace(/\s+/g,'-'), passwordHash: hash('demo'), createdAt: nowISO() })),
+        { id:'admin', role:'admin', username:'admin', passwordHash: hash('admin'), createdAt: nowISO() },
+      ];
+
+      const start = new Date(new Date().getFullYear(), 9, 15, 20, 0); // 15. Oktober, 20:00
+      const matches = [];
+      // create sample round robin 1st round for each group
+      const byGroup = group => teams.filter(t => t.group===group);
+      for(const g of GROUPS){
+        const gs = byGroup(g);
+        for(let i=0;i<gs.length;i++){
+          for(let j=i+1;j<gs.length;j++){
+            const date = new Date(start.getTime() + Math.floor(Math.random()*20)*86400000 + Math.floor(Math.random()*3)*3600000);
+            const m = { id: cryptoId(), season, group:g, dateISO: date.toISOString(), location: 'Turnhalle '+g,
+              homeTeamId: gs[i].id, awayTeamId: gs[j].id, sets: [], points: {home:0, away:0}, enteredBy: '', createdAt: nowISO() };
+            matches.push(m);
+          }
+        }
+      }
+
+      return {
+        settings: {
+          season,
+          registrationDeadline: new Date(new Date().getFullYear(), 8, 30).toISOString(), // 30. September
+          news: [
+            { id: cryptoId(), date: nowISO(), title: 'Anmeldung offen', body: 'Die Anmeldung fuer die neue Saison ist geoeffnet. Frist: 30. September.', pinned: true },
+            { id: cryptoId(), date: nowISO(), title: 'Spielplaene folgen', body: 'Provisorische Spielplaene sind in Arbeit und werden Anfang Oktober publiziert.', pinned: false },
+          ],
+          links: { A:'', B:'', C1:'', C2:'' },
+          pointsConfig: { win3_0_3_1:3, win3_2:2, loss2_3:1, loss0_3_1_3:0 }
+        },
+        teams,
+        users,
+        matches,
+        archive: [
+          { id: cryptoId(), season: (new Date().getFullYear()-1)+'/'+String(new Date().getFullYear()).slice(-2), note:'Archivierte Vorsaison', 
+            standingsSnapshot: {}, createdAt: nowISO() }
+        ],
+        session: { userId:null, role:null }
+      };
+    }
+
+    function currentSeasonLabel(){
+      const y = new Date().getFullYear();
+      return y+"/"+String(y+1).slice(-2);
+    }
+
+    function cryptoId(){ return 'id_'+Math.random().toString(36).slice(2,10)+Date.now().toString(36).slice(-4); }
+
+    // --- Auth ---------------------------------------------------------------
+    function refreshAuthUI(){
+      const state = loadState();
+      const logged = !!state.session.userId;
+      document.getElementById('loginNav').classList.toggle('hidden', logged);
+      document.getElementById('loggedInNav').classList.toggle('hidden', !logged);
+    }
+
+    function login(username, password){
+      const state = loadState();
+      const u = state.users.find(u => u.username.toLowerCase()===username.toLowerCase());
+      if(!u) return {ok:false, msg:'Unbekannter Benutzer'};
+      if(u.passwordHash !== hash(password)) return {ok:false, msg:'Falsches Passwort'};
+      state.session.userId = u.id; state.session.role = u.role; saveState(state); return {ok:true, user:u};
+    }
+    function logout(){ const s = loadState(); s.session={userId:null, role:null}; saveState(s); location.hash = '#/home'; }
+    function currentUser(){ const s = loadState(); return s.users.find(u => u.id===s.session.userId) || null; }
+    function requireLogin(){ if(!currentUser()){ location.hash = '#/login'; return false; } return true; }
+
+    // --- Domain Logic -------------------------------------------------------
+    function getTeams(group){ const s = loadState(); return group ? s.teams.filter(t => t.group===group) : s.teams; }
+    function getTeamById(id){ return loadState().teams.find(t => t.id===id); }
+    function getMatches({group=null, seasonOnly=true}={}){
+      const s = loadState();
+      return s.matches.filter(m => (!group || m.group===group) && (!seasonOnly || m.season===s.settings.season));
+    }
+
+    function upsertTeam(team){ const s = loadState(); const i = s.teams.findIndex(t => t.id===team.id); if(i>=0) s.teams[i]=team; else s.teams.push(team); saveState(s); }
+    function upsertMatch(match){ const s = loadState(); const i = s.matches.findIndex(m => m.id===match.id); if(i>=0) s.matches[i]=match; else s.matches.push(match); saveState(s); }
+
+    function computeStandings(group){
+      const s = loadState();
+      const cfg = s.settings.pointsConfig;
+      const teams = getTeams(group).map(t => ({ teamId:t.id, name:t.name, 
+        played:0, won:0, lost:0, setsWon:0, setsLost:0, ptsWon:0, ptsLost:0, points:0 }));
+      const byId = Object.fromEntries(teams.map(t => [t.teamId, t]));
+      const matches = getMatches({group});
+      for(const m of matches){
+        if(!m.sets || m.sets.length===0) continue; // no result yet
+        const tw = byId[m.homeTeamId]; const ta = byId[m.awayTeamId]; if(!tw || !ta) continue;
+        const setsHome = m.sets.filter(s=>s.home> s.away).length;
+        const setsAway = m.sets.filter(s=>s.away> s.home).length;
+        const ptsHome = m.sets.reduce((a,b)=>a+b.home,0);
+        const ptsAway = m.sets.reduce((a,b)=>a+b.away,0);
+        tw.played++; ta.played++;
+        tw.setsWon += setsHome; tw.setsLost += setsAway; tw.ptsWon += ptsHome; tw.ptsLost += ptsAway;
+        ta.setsWon += setsAway; ta.setsLost += setsHome; ta.ptsWon += ptsAway; ta.ptsLost += ptsHome;
+        if(setsHome>setsAway){ tw.won++; ta.lost++; if(setsHome===3 && (setsAway===0 || setsAway===1)) { tw.points+=cfg.win3_0_3_1; ta.points+=cfg.loss0_3_1_3; }
+          else { tw.points+=cfg.win3_2; ta.points+=cfg.loss2_3; } }
+        else { ta.won++; tw.lost++; if(setsAway===3 && (setsHome===0 || setsHome===1)) { ta.points+=cfg.win3_0_3_1; tw.points+=cfg.loss0_3_1_3; }
+          else { ta.points+=cfg.win3_2; tw.points+=cfg.loss2_3; } }
+      }
+      // sort: points desc, set ratio, point ratio, name
+      teams.sort((a,b)=>{
+        if(b.points!==a.points) return b.points-a.points;
+        const srA = a.setsLost? a.setsWon/a.setsLost : a.setsWon; const srB = b.setsLost? b.setsWon/b.setsLost : b.setsWon;
+        if(srB!==srA) return srB - srA;
+        const prA = a.ptsLost? a.ptsWon/a.ptsLost : a.ptsWon; const prB = b.ptsLost? b.ptsWon/b.ptsLost : b.ptsWon;
+        if(prB!==prA) return prB - prA;
+        return a.name.localeCompare(b.name);
+      });
+      return teams.map((t,i)=>({...t, rank:i+1}));
+    }
+
+    function recordResult(matchId, setsArray, enteredByUserId){
+      const m = clone(loadState().matches.find(x=>x.id===matchId));
+      if(!m) return {ok:false, msg:'Spiel nicht gefunden'};
+      // sanitize: keep only first 5 sets, finish at first to 3
+      const clean = []; let h=0,a=0;
+      for(const s of setsArray){ if(clean.length>=5) break; const sh = Number(s.home)||0; const sa = Number(s.away)||0; clean.push({home:sh, away:sa}); if(sh>sa) h++; else if(sa>sh) a++; if(h===3 || a===3) break; }
+      m.sets = clean; m.enteredBy = enteredByUserId; upsertMatch(m); return {ok:true, match:m};
+    }
+
+    // --- Views --------------------------------------------------------------
+    const app = document.getElementById('app');
+
+    function route(){
+      const h = location.hash || '#/home';
+      const [path, hash] = h.split('#').filter(Boolean); // e.g. "#/intern#spiele"
+      if(path.startsWith('/logout')){ logout(); return; }
+      if(path.startsWith('/home')) return renderHome();
+      if(path.startsWith('/spielplan')) return renderSpielplan();
+      if(path.startsWith('/ranglisten')) return renderRanglisten();
+      if(path.startsWith('/teams')) return renderTeams();
+      if(path.startsWith('/archiv')) return renderArchiv();
+      if(path.startsWith('/login')) return renderLogin();
+      if(path.startsWith('/intern')) return renderIntern(hash||'');
+      if(path.startsWith('/admin')) return renderAdmin();
+      if(path.startsWith('/datenschutz')) return renderDatenschutz();
+      if(path.startsWith('/impressum')) return renderImpressum();
+      return renderHome();
+    }
+
+    // Home
+    function renderHome(){
+      const s = loadState();
+      const regDate = fmtDate(s.settings.registrationDeadline);
+      const news = s.settings.news.sort((a,b)=> new Date(b.date)-new Date(a.date));
+      app.innerHTML = `
+        <section class="relative overflow-hidden rounded-2xl bg-gradient-to-br from-brand-600 to-brand-800 text-white p-8">
+          <div class="grid md:grid-cols-2 gap-6 items-center">
+            <div>
+              <h1 class="text-3xl sm:text-4xl font-extrabold leading-tight">OTGM Volleyball</h1>
+              <p class="mt-2 text-white/90">Ober Thurgauer Meisterschaft – Spielplaene, Ranglisten und Liga-News auf einen Blick.</p>
+              <div class="mt-4 flex flex-wrap gap-3">
+                <a href="#/spielplan" class="px-4 py-2 rounded-xl bg-white text-brand-800 font-semibold hover:bg-slate-100">Zu den Spielplaenen</a>
+                <a href="#/ranglisten" class="px-4 py-2 rounded-xl bg-white/10 ring-1 ring-white/30 hover:bg-white/20">Aktuelle Ranglisten</a>
+              </div>
+            </div>
+            <div class="bg-white/10 rounded-xl p-4">
+              <div class="text-sm uppercase tracking-wide text-white/80">Anmeldung</div>
+              <div class="text-xl font-bold">Frist: ${regDate}</div>
+              <p class="text-white/90 mt-1">Teams koennen sich vor Saisonstart registrieren und erhalten einen Login fuer den internen Bereich.</p>
+              <div class="mt-3 flex gap-3">
+                <a href="#/login" class="px-4 py-2 rounded-lg bg-white text-brand-800 font-semibold hover:bg-slate-100">Login / Registrieren</a>
+              </div>
+            </div>
+          </div>
+        </section>
+        <section class="mt-8 grid lg:grid-cols-3 gap-6">
+          <div class="lg:col-span-2">
+            <h2 class="text-xl font-bold mb-3">News</h2>
+            <div class="grid gap-3">
+              ${news.map(n => `
+                <article class="rounded-xl border border-slate-200 bg-white p-4">
+                  <div class="flex items-center justify-between gap-3">
+                    <h3 class="font-semibold">${escapeHtml(n.title)}</h3>
+                    <time class="text-xs text-slate-500">${fmtDate(n.date)}</time>
+                  </div>
+                  <p class="text-slate-700 mt-1">${escapeHtml(n.body)}</p>
+                </article>`).join('')}
+            </div>
+          </div>
+          <aside>
+            <h2 class="text-xl font-bold mb-3">Direktlinks</h2>
+            <div class="rounded-xl border border-slate-200 bg-white p-4 space-y-2">
+              ${GROUPS.map(g=>{
+                const link = s.settings.links[g];
+                return `<div class="flex items-center justify-between"><span>Gruppe ${g}</span>${link?`<a class='text-brand-700 hover:underline' href='${link}' target='_blank' rel='noopener'>Spielplan-Link</a>`:`<span class='text-slate-400'>Kein Link</span>`}</div>`
+              }).join('')}
+            </div>
+          </aside>
+        </section>
+      `;
+    }
+
+    // Spielplan
+    function renderSpielplan(){
+      const s = loadState();
+      const currentGroup = new URLSearchParams(location.hash.split('?')[1]).get('g') || 'A';
+      const tabs = GROUPS.map(g=> `<button data-g="${g}" class="tab-btn px-3 py-2 rounded-lg ${g===currentGroup?'bg-brand-600 text-white':'bg-white hover:bg-slate-100'}">Gruppe ${g}</button>`).join('');
+      const matches = getMatches({group:currentGroup}).sort((a,b)=> new Date(a.dateISO)-new Date(b.dateISO));
+      app.innerHTML = `
+        <h1 class="text-2xl font-bold mb-4">Spielplaene</h1>
+        <div class="flex flex-wrap gap-2 mb-4">${tabs}</div>
+        <div class="rounded-xl overflow-hidden border border-slate-200 bg-white">
+          <table class="w-full text-sm">
+            <thead class="bg-slate-50 text-slate-600">
+              <tr>
+                <th class="text-left p-3">Datum</th>
+                <th class="text-left p-3">Zeit</th>
+                <th class="text-left p-3">Ort</th>
+                <th class="text-left p-3">Heim</th>
+                <th class="text-left p-3">Gast</th>
+                <th class="text-left p-3">Resultat</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${matches.map(m=>`<tr class="border-t">
+                <td class="p-3">${fmtDate(m.dateISO)}</td>
+                <td class="p-3">${fmtTime(m.dateISO)}</td>
+                <td class="p-3">${escapeHtml(m.location)}</td>
+                <td class="p-3">${escapeHtml(getTeamById(m.homeTeamId)?.name||'')}</td>
+                <td class="p-3">${escapeHtml(getTeamById(m.awayTeamId)?.name||'')}</td>
+                <td class="p-3">${formatResult(m)}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+      app.querySelectorAll('.tab-btn').forEach(btn => btn.addEventListener('click', ()=>{
+        const g = btn.getAttribute('data-g'); location.hash = `#/spielplan?g=${g}`;
+      }));
+    }
+
+    function formatResult(m){
+      if(!m.sets || m.sets.length===0) return '<span class="text-slate-400">offen</span>';
+      const sh = m.sets.filter(s=>s.home>s.away).length;
+      const sa = m.sets.filter(s=>s.away>s.home).length;
+      const short = m.sets.map(s=>`${s.home}:${s.away}`).join(', ');
+      return `<span class="font-semibold">${sh}:${sa}</span> <span class="text-slate-500">(${short})</span>`;
+    }
+
+    // Ranglisten
+    function renderRanglisten(){
+      const currentGroup = new URLSearchParams(location.hash.split('?')[1]).get('g') || 'A';
+      const tabs = GROUPS.map(g=> `<button data-g="${g}" class="tab-btn px-3 py-2 rounded-lg ${g===currentGroup?'bg-brand-600 text-white':'bg-white hover:bg-slate-100'}">Gruppe ${g}</button>`).join('');
+      const rows = computeStandings(currentGroup);
+      app.innerHTML = `
+        <h1 class="text-2xl font-bold mb-4">Ranglisten</h1>
+        <div class="flex flex-wrap gap-2 mb-4">${tabs}</div>
+        <div class="rounded-xl overflow-hidden border border-slate-200 bg-white">
+          <table class="w-full text-sm">
+            <thead class="bg-slate-50 text-slate-600">
+              <tr>
+                <th class="text-left p-3">#</th>
+                <th class="text-left p-3">Team</th>
+                <th class="text-left p-3">Sp</th>
+                <th class="text-left p-3">S</th>
+                <th class="text-left p-3">N</th>
+                <th class="text-left p-3">Saetze</th>
+                <th class="text-left p-3">Punkte</th>
+                <th class="text-left p-3">Liga-Pkt</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.map(r=>`<tr class="border-t">
+                <td class="p-3">${r.rank}</td>
+                <td class="p-3">${escapeHtml(r.name)}</td>
+                <td class="p-3">${r.played}</td>
+                <td class="p-3">${r.won}</td>
+                <td class="p-3">${r.lost}</td>
+                <td class="p-3">${r.setsWon}:${r.setsLost}</td>
+                <td class="p-3">${r.ptsWon}:${r.ptsLost}</td>
+                <td class="p-3 font-semibold">${r.points}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+        <p class="text-xs text-slate-500 mt-2">Punktesystem: 3:0/3:1 = 3 Punkte; 3:2 = 2 Punkte; 2:3 = 1 Punkt; 0:3/1:3 = 0 Punkte.</p>
+      `;
+      app.querySelectorAll('.tab-btn').forEach(btn => btn.addEventListener('click', ()=>{
+        const g = btn.getAttribute('data-g'); location.hash = `#/ranglisten?g=${g}`;
+      }));
+    }
+
+    // Teams (oeffentlich)
+    function renderTeams(){
+      const s = loadState();
+      const grouped = Object.fromEntries(GROUPS.map(g => [g, s.teams.filter(t=>t.group===g)]));
+      app.innerHTML = `
+        <h1 class="text-2xl font-bold mb-4">Teams</h1>
+        ${GROUPS.map(g=>`
+          <h2 class="text-lg font-semibold mt-6 mb-2">Gruppe ${g}</h2>
+          <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            ${grouped[g].map(t=>`
+              <article class="rounded-xl border border-slate-200 bg-white overflow-hidden">
+                <div class="aspect-video bg-slate-100 grid place-items-center text-slate-400">
+                  ${t.photo ? `<img src="${t.photo}" alt="Teamfoto ${escapeHtml(t.name)}" class="w-full h-full object-cover">` : '<span>Kein Foto</span>'}
+                </div>
+                <div class="p-3">
+                  <h3 class="font-semibold">${escapeHtml(t.name)}</h3>
+                  <div class="text-sm text-slate-600">Captain: ${escapeHtml(t.captain)}</div>
+                  <div class="text-xs text-slate-500">Gruppe ${t.group}</div>
+                </div>
+              </article>
+            `).join('')}
+          </div>
+        `).join('')}
+      `;
+    }
+
+    // Archiv (oeffentlich)
+    function renderArchiv(){
+      const s = loadState();
+      const items = s.archive.sort((a,b)=>a.season<b.season?1:-1);
+      app.innerHTML = `
+        <h1 class="text-2xl font-bold mb-4">Archiv</h1>
+        <div class="grid gap-3">
+          ${items.map(a=>`
+            <div class="rounded-xl border border-slate-200 bg-white p-4">
+              <div class="flex items-center justify-between">
+                <div>
+                  <div class="font-semibold">Saison ${escapeHtml(a.season)}</div>
+                  <div class="text-sm text-slate-600">${escapeHtml(a.note||'')}</div>
+                </div>
+                <button class="px-3 py-2 rounded-lg bg-white hover:bg-slate-100 ring-1 ring-slate-200 text-sm" data-view="${a.id}">Standings anzeigen</button>
+              </div>
+              <div class="mt-3 hidden" id="arch-${a.id}">
+                ${renderArchiveStandings(a)}
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      `;
+      app.querySelectorAll('[data-view]').forEach(btn=>{
+        btn.addEventListener('click',()=>{
+          const id = btn.getAttribute('data-view');
+          document.getElementById('arch-'+id).classList.toggle('hidden');
+        })
+      });
+    }
+
+    function renderArchiveStandings(arch){
+      if(!arch.standingsSnapshot || Object.keys(arch.standingsSnapshot).length===0){
+        return `<div class="text-sm text-slate-500">Keine Ranglisten hinterlegt.</div>`;
+      }
+      return GROUPS.map(g=>{
+        const rows = arch.standingsSnapshot[g]||[];
+        return `
+          <h3 class="font-semibold mt-4">Gruppe ${g}</h3>
+          <div class="rounded-lg overflow-hidden border border-slate-200 bg-white">
+            <table class="w-full text-sm">
+              <thead class="bg-slate-50 text-slate-600"><tr>
+                <th class="text-left p-2">#</th>
+                <th class="text-left p-2">Team</th>
+                <th class="text-left p-2">Sp</th>
+                <th class="text-left p-2">S</th>
+                <th class="text-left p-2">N</th>
+                <th class="text-left p-2">Saetze</th>
+                <th class="text-left p-2">Punkte</th>
+                <th class="text-left p-2">Liga-Pkt</th>
+              </tr></thead>
+              <tbody>
+                ${rows.map(r=>`<tr class="border-t">
+                  <td class="p-2">${r.rank}</td>
+                  <td class="p-2">${escapeHtml(r.name)}</td>
+                  <td class="p-2">${r.played}</td>
+                  <td class="p-2">${r.won}</td>
+                  <td class="p-2">${r.lost}</td>
+                  <td class="p-2">${r.setsWon}:${r.setsLost}</td>
+                  <td class="p-2">${r.ptsWon}:${r.ptsLost}</td>
+                  <td class="p-2">${r.points}</td>
+                </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>`;
+      }).join('');
+    }
+
+    // Login / Registrierung
+    function renderLogin(){
+      app.innerHTML = `
+        <div class="max-w-md mx-auto">
+          <h1 class="text-2xl font-bold mb-4">Login</h1>
+          <form id="loginForm" class="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
+            <div>
+              <label class="block text-sm">Benutzername</label>
+              <input type="text" name="username" required class="mt-1 w-full rounded-lg border-slate-300">
+            </div>
+            <div>
+              <label class="block text-sm">Passwort</label>
+              <input type="password" name="password" required class="mt-1 w-full rounded-lg border-slate-300">
+            </div>
+            <button class="w-full px-4 py-2 rounded-lg bg-brand-600 text-white hover:bg-brand-700">Einloggen</button>
+            <p class="text-xs text-slate-500">Hinweis: Demo-Daten. Team-Logins haben Passwort <span class="font-mono">demo</span>. Admin: <span class="font-mono">admin / admin</span>.</p>
+          </form>
+
+          <h2 class="text-lg font-semibold mt-8 mb-2">Team registrieren</h2>
+          <form id="regForm" class="rounded-xl border border-slate-200 bg-white p-4 grid gap-3">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label class="block text-sm">Teamname</label>
+                <input name="name" required class="mt-1 w-full rounded-lg border-slate-300" />
+              </div>
+              <div>
+                <label class="block text-sm">Gruppe</label>
+                <select name="group" required class="mt-1 w-full rounded-lg border-slate-300">
+                  ${GROUPS.map(g=>`<option>${g}</option>`).join('')}
+                </select>
+              </div>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label class="block text-sm">Captain</label>
+                <input name="captain" required class="mt-1 w-full rounded-lg border-slate-300" />
+              </div>
+              <div>
+                <label class="block text-sm">E-Mail</label>
+                <input type="email" name="email" required class="mt-1 w-full rounded-lg border-slate-300" />
+              </div>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label class="block text-sm">Telefon</label>
+                <input name="phone" class="mt-1 w-full rounded-lg border-slate-300" />
+              </div>
+              <div>
+                <label class="block text-sm">Passwort</label>
+                <input type="password" name="password" required class="mt-1 w-full rounded-lg border-slate-300" />
+              </div>
+            </div>
+            <button class="px-4 py-2 rounded-lg bg-white hover:bg-slate-100 ring-1 ring-slate-200 justify-self-start">Registrieren</button>
+            <p class="text-xs text-slate-500">Nach der Registrierung koennen Sie sich direkt einloggen.</p>
+          </form>
+        </div>
+      `;
+      document.getElementById('loginForm').addEventListener('submit', e=>{
+        e.preventDefault(); const fd = new FormData(e.target);
+        const res = login(fd.get('username'), fd.get('password'));
+        if(!res.ok){ alert(res.msg); return; }
+        location.hash = '#/intern';
+      });
+      document.getElementById('regForm').addEventListener('submit', e=>{
+        e.preventDefault(); const fd = new FormData(e.target);
+        const s = loadState();
+        const id = 't'+cryptoId();
+        const team = { id, name: fd.get('name'), group: fd.get('group'), captain: fd.get('captain'), email: fd.get('email'), phone: fd.get('phone')||'', photo:'' };
+        s.teams.push(team);
+        const username = team.name.toLowerCase().replace(/\s+/g,'-');
+        s.users.push({ id:'u_'+id, teamId:id, role:'team', username, passwordHash: hash(fd.get('password')), createdAt: nowISO() });
+        saveState(s);
+        alert('Team registriert. Benutzername: '+username);
+      });
+    }
+
+    // Intern (geschuetzt)
+    function renderIntern(anchor){
+      if(!requireLogin()) return;
+      const u = currentUser();
+      const s = loadState();
+      const team = u.role==='team' ? s.teams.find(t=>t.id===u.teamId) : null;
+
+      const myMatches = u.role==='team' ? s.matches.filter(m=> m.season===s.settings.season && (m.homeTeamId===team.id || m.awayTeamId===team.id)).sort((a,b)=> new Date(a.dateISO)-new Date(b.dateISO)) : [];
+      const possibleOpp = u.role==='team' ? s.teams.filter(t=> t.group===team.group && t.id!==team.id) : [];
+
+      app.innerHTML = `
+        <h1 class="text-2xl font-bold mb-4">Interner Bereich</h1>
+        <div class="grid lg:grid-cols-3 gap-6">
+          <section class="lg:col-span-2 space-y-6">
+            <div class="rounded-xl border border-slate-200 bg-white p-4" id="panelSpiele">
+              <div class="flex items-center justify-between mb-2">
+                <h2 class="font-semibold">Meine Spiele</h2>
+                ${u.role==='team' ? `<a href="#/intern#spiele" class="text-sm text-brand-700 hover:underline">Zum Formular</a>`:''}
+              </div>
+              ${u.role==='team' ? `
+                <div class="overflow-auto">
+                  <table class="w-full text-sm min-w-[600px]">
+                    <thead class="bg-slate-50 text-slate-600"><tr>
+                      <th class="text-left p-2">Datum</th>
+                      <th class="text-left p-2">Zeit</th>
+                      <th class="text-left p-2">Ort</th>
+                      <th class="text-left p-2">Heim</th>
+                      <th class="text-left p-2">Gast</th>
+                      <th class="text-left p-2">Resultat</th>
+                      <th class="text-left p-2">Aktion</th>
+                    </tr></thead>
+                    <tbody>
+                      ${myMatches.map(m=>`<tr class="border-t">
+                        <td class="p-2">${fmtDate(m.dateISO)}</td>
+                        <td class="p-2">${fmtTime(m.dateISO)}</td>
+                        <td class="p-2">${escapeHtml(m.location)}</td>
+                        <td class="p-2">${escapeHtml(getTeamById(m.homeTeamId).name)}</td>
+                        <td class="p-2">${escapeHtml(getTeamById(m.awayTeamId).name)}</td>
+                        <td class="p-2">${formatResult(m)}</td>
+                        <td class="p-2">${m.sets?.length?'<span class="text-slate-400">Erfasst</span>':`<button data-enter="${m.id}" class="px-2 py-1 text-sm rounded bg-brand-600 text-white">Resultat</button>`}</td>
+                      </tr>`).join('')}
+                    </tbody>
+                  </table>
+                </div>` : '<div class="text-sm text-slate-500">Nur fuer Team-Logins sichtbar.</div>'}
+            </div>
+
+            <div class="rounded-xl border border-slate-200 bg-white p-4" id="panelAdressen">
+              <h2 class="font-semibold mb-3">Adressliste Kapitaene</h2>
+              ${u.role==='team' ? `
+                <div class="overflow-auto">
+                  <table class="w-full text-sm min-w-[600px]">
+                    <thead class="bg-slate-50 text-slate-600"><tr>
+                      <th class="text-left p-2">Team</th>
+                      <th class="text-left p-2">Captain</th>
+                      <th class="text-left p-2">E-Mail</th>
+                      <th class="text-left p-2">Telefon</th>
+                    </tr></thead>
+                    <tbody>
+                      ${getTeams(team.group).map(t=>`<tr class="border-t">
+                        <td class="p-2">${escapeHtml(t.name)}</td>
+                        <td class="p-2">${escapeHtml(t.captain)}</td>
+                        <td class="p-2"><a class="text-brand-700" href="mailto:${escapeAttr(t.email)}">${escapeHtml(t.email)}</a></td>
+                        <td class="p-2"><a class="text-brand-700" href="tel:${escapeAttr(t.phone)}">${escapeHtml(t.phone)}</a></td>
+                      </tr>`).join('')}
+                    </tbody>
+                  </table>
+                </div>
+              ` : '<div class="text-sm text-slate-500">Nur fuer Team-Logins sichtbar.</div>'}
+            </div>
+          </section>
+
+          <aside class="space-y-6">
+            ${u.role==='team' ? `
+            <div class="rounded-xl border border-slate-200 bg-white p-4" id="formSpieldaten">
+              <h3 class="font-semibold mb-2">Spieldatum erfassen</h3>
+              <form id="newMatchForm" class="grid gap-2">
+                <div>
+                  <label class="block text-sm">Gegner</label>
+                  <select name="opponent" class="mt-1 w-full rounded-lg border-slate-300" required>
+                    <option value="">Waehlen...</option>
+                    ${possibleOpp.map(o=>`<option value="${o.id}">${escapeHtml(o.name)}</option>`).join('')}
+                  </select>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                  <div>
+                    <label class="block text-sm">Datum</label>
+                    <input type="date" name="date" class="mt-1 w-full rounded-lg border-slate-300" required>
+                  </div>
+                  <div>
+                    <label class="block text-sm">Zeit</label>
+                    <input type="time" name="time" class="mt-1 w-full rounded-lg border-slate-300" required>
+                  </div>
+                </div>
+                <div>
+                  <label class="block text-sm">Ort</label>
+                  <input name="location" class="mt-1 w-full rounded-lg border-slate-300" placeholder="Turnhalle..." required>
+                </div>
+                <div>
+                  <label class="block text-sm">Heim/Gast</label>
+                  <select name="homeAway" class="mt-1 w-full rounded-lg border-slate-300" required>
+                    <option value="home">Wir sind Heim</option>
+                    <option value="away">Wir sind Gast</option>
+                  </select>
+                </div>
+                <button class="mt-1 px-3 py-2 rounded-lg bg-brand-600 text-white hover:bg-brand-700">Speichern</button>
+              </form>
+            </div>
+
+            <div class="rounded-xl border border-slate-200 bg-white p-4" id="formResultat">
+              <h3 class="font-semibold mb-2">Resultat eintragen</h3>
+              <form id="resultForm" class="grid gap-2">
+                <div>
+                  <label class="block text-sm">Spiel</label>
+                  <select name="matchId" class="mt-1 w-full rounded-lg border-slate-300" required>
+                    <option value="">Waehlen...</option>
+                    ${myMatches.filter(m=>!m.sets?.length).map(m=>`<option value="${m.id}">${fmtDate(m.dateISO)} ${fmtTime(m.dateISO)} – ${escapeHtml(getTeamById(m.homeTeamId).name)} vs ${escapeHtml(getTeamById(m.awayTeamId).name)}</option>`).join('')}
+                  </select>
+                </div>
+                ${[1,2,3,4,5].map(i=>`
+                  <div class="grid grid-cols-2 gap-2 items-end">
+                    <div>
+                      <label class="block text-sm">Satz ${i} – ${escapeHtml(getTeamById(team.id).name)}</label>
+                      <input type="number" min="0" name="s${i}h" class="mt-1 w-full rounded-lg border-slate-300" placeholder="z.B. 25">
+                    </div>
+                    <div>
+                      <label class="block text-sm">Satz ${i} – Gegner</label>
+                      <input type="number" min="0" name="s${i}a" class="mt-1 w-full rounded-lg border-slate-300" placeholder="z.B. 20">
+                    </div>
+                  </div>`).join('')}
+                <button class="mt-1 px-3 py-2 rounded-lg bg-brand-600 text-white hover:bg-brand-700">Speichern</button>
+                <p class="text-xs text-slate-500">Es werden max. 5 Saetze gespeichert; beendet nach erstem 3. Satzgewinn.</p>
+              </form>
+            </div>
+
+            <div class="rounded-xl border border-slate-200 bg-white p-4" id="formTeamfoto">
+              <h3 class="font-semibold mb-2">Teamfoto speichern</h3>
+              <form id="photoForm" class="grid gap-2">
+                <input type="file" accept="image/*" name="photo" class="w-full rounded-lg border-slate-300">
+                <button class="px-3 py-2 rounded-lg bg-white hover:bg-slate-100 ring-1 ring-slate-200">Upload</button>
+                <p class="text-xs text-slate-500">Das Foto wird lokal im Browser gespeichert (Demo).</p>
+              </form>
+            </div>
+            `: `<div class="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-500">Nur fuer Team-Logins.</div>`}
+          </aside>
+        </div>
+      `;
+      // handlers
+      if(u.role==='team'){
+        app.querySelectorAll('[data-enter]').forEach(btn=>{
+          btn.addEventListener('click',()=>{
+            const id = btn.getAttribute('data-enter');
+            const sel = app.querySelector('#resultForm select[name="matchId"]');
+            sel.value = id; app.querySelector('#formResultat').scrollIntoView({behavior:'smooth'});
+          })
+        });
+        document.getElementById('newMatchForm').addEventListener('submit', e=>{
+          e.preventDefault(); const fd = new FormData(e.target);
+          const opp = fd.get('opponent'); if(!opp) return;
+          const date = fd.get('date'); const time = fd.get('time'); const iso = new Date(date+'T'+time+':00').toISOString();
+          const location = fd.get('location'); const home = fd.get('homeAway')==='home';
+          const m = { id: cryptoId(), season: s.settings.season, group: team.group, dateISO: iso, location,
+            homeTeamId: home? team.id : opp, awayTeamId: home? opp : team.id, sets: [], points:{home:0,away:0}, enteredBy:'', createdAt: nowISO() };
+          upsertMatch(m); alert('Spiel gespeichert.'); renderIntern('#spiele');
+        });
+        document.getElementById('resultForm').addEventListener('submit', e=>{
+          e.preventDefault(); const fd = new FormData(e.target);
+          const id = fd.get('matchId'); if(!id) return alert('Bitte Spiel waehlen');
+          const sets = [];
+          for(let i=1;i<=5;i++){ const h = fd.get('s'+i+'h'); const a = fd.get('s'+i+'a'); if(h!=='' && a!==''){ sets.push({home:Number(h), away:Number(a)}); } }
+          const res = recordResult(id, sets, u.id); if(!res.ok){ alert(res.msg); return; }
+          alert('Resultat gespeichert.'); renderIntern('#spiele');
+        });
+        document.getElementById('photoForm').addEventListener('submit', async e=>{
+          e.preventDefault(); const file = e.target.photo.files[0]; if(!file) return;
+          const b64 = await fileToBase64(file); const s2 = loadState(); const t = s2.teams.find(x=>x.id===team.id); t.photo = b64; saveState(s2);
+          alert('Foto gespeichert.'); renderIntern('#teamfoto');
+        });
+      }
+    }
+
+    function fileToBase64(file){
+      return new Promise((resolve,reject)=>{ const fr = new FileReader(); fr.onload = ()=> resolve(fr.result); fr.onerror = reject; fr.readAsDataURL(file); });
+    }
+
+    // Admin
+    function renderAdmin(){
+      const s = loadState(); const u = currentUser(); const isAdmin = u?.role==='admin';
+      app.innerHTML = `
+        <h1 class="text-2xl font-bold mb-4">Admin</h1>
+        ${isAdmin ? '' : '<p class="text-sm text-slate-500">Hinweis: Melden Sie sich als <span class="font-mono">admin</span> an, um Einstellungen zu bearbeiten.</p>'}
+        <div class="grid lg:grid-cols-3 gap-6 mt-2">
+          <section class="lg:col-span-2 space-y-6">
+            <div class="rounded-xl border border-slate-200 bg-white p-4">
+              <div class="flex items-center justify-between mb-2"><h2 class="font-semibold">News verwalten</h2> ${isAdmin?'<button id="addNews" class="px-3 py-1.5 text-sm rounded bg-white hover:bg-slate-100 ring-1 ring-slate-200">Neu</button>':''}</div>
+              <div class="grid gap-2" id="newsList">
+                ${s.settings.news.map(n=>`
+                  <div class="border border-slate-200 rounded-lg p-3 flex items-start gap-3">
+                    <div class="grow">
+                      <div class="font-semibold">${escapeHtml(n.title)}</div>
+                      <div class="text-sm text-slate-600">${escapeHtml(n.body)}</div>
+                      <div class="text-xs text-slate-500 mt-1">${fmtDate(n.date)} ${n.pinned?'• Angepinnt':''}</div>
+                    </div>
+                    ${isAdmin?`<div class="flex gap-2">
+                      <button class="px-2 py-1 text-sm rounded bg-white ring-1 ring-slate-200 hover:bg-slate-100" data-edit="${n.id}">Bearbeiten</button>
+                      <button class="px-2 py-1 text-sm rounded bg-white ring-1 ring-red-200 hover:bg-red-50 text-red-600" data-del="${n.id}">Loeschen</button>
+                    </div>`:''}
+                  </div>`).join('')}
+              </div>
+            </div>
+
+            <div class="rounded-xl border border-slate-200 bg-white p-4">
+              <h2 class="font-semibold mb-2">Teams & Logins</h2>
+              <div class="overflow-auto">
+                <table class="w-full text-sm min-w-[700px]">
+                  <thead class="bg-slate-50 text-slate-600"><tr>
+                    <th class="text-left p-2">Team</th>
+                    <th class="text-left p-2">Gruppe</th>
+                    <th class="text-left p-2">Captain</th>
+                    <th class="text-left p-2">E-Mail</th>
+                    <th class="text-left p-2">Benutzer</th>
+                    <th class="text-left p-2">Aktionen</th>
+                  </tr></thead>
+                  <tbody>
+                    ${s.teams.map(t=>{
+                      const u = s.users.find(x=>x.teamId===t.id);
+                      return `<tr class="border-t">
+                        <td class="p-2">${escapeHtml(t.name)}</td>
+                        <td class="p-2">${t.group}</td>
+                        <td class="p-2">${escapeHtml(t.captain)}</td>
+                        <td class="p-2">${escapeHtml(t.email)}</td>
+                        <td class="p-2">${escapeHtml(u?.username||'-')}</td>
+                        <td class="p-2">
+                          ${isAdmin?`<button data-reset="${t.id}" class="px-2 py-1 text-sm rounded bg-white ring-1 ring-slate-200 hover:bg-slate-100">Passwort reset</button>`:''}
+                        </td>
+                      </tr>`
+                    }).join('')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
+          <aside class="space-y-6">
+            <div class="rounded-xl border border-slate-200 bg-white p-4">
+              <h3 class="font-semibold mb-2">Einstellungen</h3>
+              <form id="settingsForm" class="grid gap-2">
+                <div>
+                  <label class="block text-sm">Saison</label>
+                  <input name="season" value="${escapeAttr(s.settings.season)}" class="mt-1 w-full rounded-lg border-slate-300">
+                </div>
+                <div>
+                  <label class="block text-sm">Anmeldefrist</label>
+                  <input type="date" name="reg" value="${new Date(s.settings.registrationDeadline).toISOString().slice(0,10)}" class="mt-1 w-full rounded-lg border-slate-300">
+                </div>
+                ${GROUPS.map(g=>`
+                <div>
+                  <label class="block text-sm">Spielplan-Link Gruppe ${g}</label>
+                  <input name="link_${g}" value="${escapeAttr(s.settings.links[g]||'')}" class="mt-1 w-full rounded-lg border-slate-300" placeholder="https://...">
+                </div>`).join('')}
+                ${isAdmin?'<button class="px-3 py-2 rounded-lg bg-brand-600 text-white hover:bg-brand-700">Speichern</button>':''}
+              </form>
+            </div>
+
+            <div class="rounded-xl border border-slate-200 bg-white p-4">
+              <h3 class="font-semibold mb-2">Daten</h3>
+              <div class="flex flex-wrap gap-2">
+                <button id="btnExport" class="px-3 py-2 rounded-lg bg-white hover:bg-slate-100 ring-1 ring-slate-200">Export JSON</button>
+                <label class="px-3 py-2 rounded-lg bg-white hover:bg-slate-100 ring-1 ring-slate-200 cursor-pointer">
+                  Import JSON<input type="file" id="importFile" accept="application/json" class="hidden">
+                </label>
+                <button id="btnArchive" class="px-3 py-2 rounded-lg bg-white hover:bg-slate-100 ring-1 ring-slate-200">Saison in Archiv</button>
+                <button id="btnReset" class="px-3 py-2 rounded-lg bg-white hover:bg-red-50 ring-1 ring-red-200 text-red-600">Demo reset</button>
+              </div>
+            </div>
+          </aside>
+        </div>
+      `;
+      // handlers
+      document.getElementById('btnExport').addEventListener('click', ()=>{
+        downloadJSON('otgm-export.json', loadState());
+      });
+      document.getElementById('importFile').addEventListener('change', (e)=>{
+        const f = e.target.files[0]; if(!f) return; const fr = new FileReader(); fr.onload = ()=>{ try{ const data = JSON.parse(fr.result); saveState(data); alert('Import ok.'); route(); }catch(err){ alert('Import fehlgeschlagen: '+err.message); } }; fr.readAsText(f);
+      });
+      document.getElementById('btnReset').addEventListener('click', ()=>{
+        if(confirm('Alle Demo-Daten zuruecksetzen?')){ localStorage.removeItem(LS_KEY); route(); }
+      });
+      document.getElementById('btnArchive').addEventListener('click', ()=>{
+        const s2 = loadState(); const snap = {}; for(const g of GROUPS){ snap[g] = computeStandings(g); }
+        s2.archive.push({ id: cryptoId(), season: s2.settings.season, note: 'Automatischer Snapshot', standingsSnapshot: snap, createdAt: nowISO() }); saveState(s2); alert('In Archiv gespeichert.');
+      });
+      document.getElementById('settingsForm').addEventListener('submit', e=>{
+        e.preventDefault(); if(!isAdmin) return; const fd = new FormData(e.target); const s2 = loadState();
+        s2.settings.season = fd.get('season'); s2.settings.registrationDeadline = new Date(fd.get('reg')+'T00:00:00').toISOString();
+        for(const g of GROUPS){ s2.settings.links[g] = fd.get('link_'+g); }
+        saveState(s2); alert('Gespeichert.');
+      });
+      if(isAdmin){
+        document.getElementById('addNews').addEventListener('click', ()=>{
+          const title = prompt('Titel'); if(!title) return; const body = prompt('Text')||''; const pinned = confirm('Anpinnen?');
+          const s2 = loadState(); s2.settings.news.push({id: cryptoId(), date: nowISO(), title, body, pinned}); saveState(s2); renderAdmin();
+        });
+        app.querySelectorAll('[data-edit]').forEach(btn=>btn.addEventListener('click',()=>{
+          const id = btn.getAttribute('data-edit'); const s2=loadState(); const n=s2.settings.news.find(x=>x.id===id);
+          const title = prompt('Titel', n.title); if(title===null) return; const body = prompt('Text', n.body); if(body===null) return; const pinned = confirm('Angepinnt?');
+          n.title=title; n.body=body; n.pinned=pinned; saveState(s2); renderAdmin();
+        }));
+        app.querySelectorAll('[data-del]').forEach(btn=>btn.addEventListener('click',()=>{
+          const id = btn.getAttribute('data-del'); const s2=loadState(); s2.settings.news = s2.settings.news.filter(x=>x.id!==id); saveState(s2); renderAdmin();
+        }));
+        app.querySelectorAll('[data-reset]').forEach(btn=>btn.addEventListener('click',()=>{
+          const tid = btn.getAttribute('data-reset'); const s2=loadState(); const u = s2.users.find(x=>x.teamId===tid); if(!u) return alert('Kein Benutzer');
+          u.passwordHash = hash('demo'); saveState(s2); alert('Passwort zurueckgesetzt (demo).');
+        }));
+      }
+    }
+
+    // Datenschutz & Impressum (statisch minimal)
+    function renderDatenschutz(){
+      app.innerHTML = `
+        <h1 class="text-2xl font-bold mb-4">Datenschutz</h1>
+        <div class="rounded-xl border border-slate-200 bg-white p-4 space-y-3 text-sm leading-6">
+          <p>Diese Demo speichert Daten lokal im Browser (LocalStorage). Fuer einen Produktivbetrieb empfehlen wir einen Server mit Login, Datenbank und verschluesselter Uebertragung.</p>
+          <p>Kontakt: Thurgauer Turnverband – Volleyball.</p>
+        </div>`;
+    }
+    function renderImpressum(){
+      app.innerHTML = `
+        <h1 class="text-2xl font-bold mb-4">Impressum</h1>
+        <div class="rounded-xl border border-slate-200 bg-white p-4 text-sm leading-6">
+          <p>OTGM – Ober Thurgauer Meisterschaft (Thurgauer Turnverband).</p>
+        </div>`;
+    }
+
+    // --- Helpers ------------------------------------------------------------
+    function escapeHtml(s){ return String(s||'').replace(/[&<>\"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
+    function escapeAttr(s){ return escapeHtml(s); }
+
+    // Init
+    document.getElementById('year').textContent = new Date().getFullYear();
+    window.addEventListener('hashchange', route);
+    refreshAuthUI();
+    route();
+  </script>
+</body>
+</html>
